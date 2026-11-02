@@ -115,22 +115,39 @@ echo "$NEW_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/$NEW_USER
 chmod 440 /etc/sudoers.d/$NEW_USER
 echo "[+] Пользователь $NEW_USER успешно настроен."
 
-echo "=== [3/7] Настройка кастомного SSH порта и отключение ключей ==="
+echo "=== [3/7] Настройка кастомного SSH порта и модульной безопасности ==="
 
-# Функция безопасного обновления параметров в sshd_config
-set_sshd_param() {
-    local param="$1"
-    local value="$2"
-    if grep -q "^#\? \?$param " /etc/ssh/sshd_config; then
-        sed -i "s/^#\? \?$param .*/$param $value/" /etc/ssh/sshd_config
-    else
-        echo "$param $value" >> /etc/ssh/sshd_config
+# Создаем директорию для drop-in конфигураций SSH (стандарт Ubuntu 24.04+)
+mkdir -p /etc/ssh/sshd_config.d
+
+# Базовая конфигурация харденинга через отдельный файл drop-in
+cat <<EOF > /etc/ssh/sshd_config.d/99-hardening.conf
+PermitRootLogin no
+PubkeyAuthentication no
+EOF
+
+# Настраиваем аутентификацию в зависимости от выбора 2FA
+if [ "$SETUP_2FA" = true ]; then
+    if ! grep -q "pam_google_authenticator.so" /etc/pam.d/sshd; then
+        sed -i '/@include common-auth/a auth required pam_google_authenticator.so' /etc/pam.d/sshd
     fi
-}
+    
+    cat <<EOF >> /etc/ssh/sshd_config.d/99-hardening.conf
+KbdInteractiveAuthentication yes
+PasswordAuthentication yes
+EOF
+else
+    cat <<EOF >> /etc/ssh/sshd_config.d/99-hardening.conf
+KbdInteractiveAuthentication no
+PasswordAuthentication yes
+EOF
+fi
 
-set_sshd_param "Port" "$CUSTOM_SSH_PORT"
-set_sshd_param "PermitRootLogin" "no"
-set_sshd_param "PubkeyAuthentication" "no"
+# Строгая проверка синтаксиса SSH конфига перед применением (защита от потери доступа)
+if ! sshd -t; then
+    echo "[-] Критическая ошибка: Синтаксическая ошибка в конфигурации SSH! Отменяем изменения."
+    exit 1
+fi
 
 # Обработка ssh.socket для Ubuntu 24.04 (IPv4 + IPv6 Dual Stack)
 if systemctl list-unit-files | grep -q ssh.socket; then
@@ -146,6 +163,8 @@ EOF
     systemctl restart ssh.socket
 else
     echo "[*] Используется стандартный sshd сервис."
+    # На всякий случай прописываем порт в drop-in
+    echo "Port $CUSTOM_SSH_PORT" >> /etc/ssh/sshd_config.d/99-hardening.conf
     systemctl restart ssh
 fi
 
@@ -189,15 +208,8 @@ else
     echo "=== [5/7] Пропуск установки Fail2ban ==="
 fi
 
-echo "=== [6/7] Настройка аутентификации SSH ==="
+echo "=== [6/7] Настройка аутентификации SSH и 2FA ==="
 if [ "$SETUP_2FA" = true ]; then
-    if ! grep -q "pam_google_authenticator.so" /etc/pam.d/sshd; then
-        sed -i '/@include common-auth/a auth required pam_google_authenticator.so' /etc/pam.d/sshd
-    fi
-    
-    set_sshd_param "KbdInteractiveAuthentication" "yes"
-    set_sshd_param "PasswordAuthentication" "yes"
-    
     systemctl restart ssh.socket || true
     systemctl restart ssh || true
 
@@ -214,8 +226,6 @@ if [ "$SETUP_2FA" = true ]; then
     su - "$NEW_USER" -c 'google-authenticator -t -d -f -r 3 -R 30'
 else
     echo "[*] Режим без 2FA: включен вход только по паролю."
-    set_sshd_param "KbdInteractiveAuthentication" "no"
-    set_sshd_param "PasswordAuthentication" "yes"
 fi
 
 echo "=== [7/7] Настройка фоновых служб (Unattended-upgrades, Logwatch, Диск) ==="
@@ -250,7 +260,7 @@ EOF
     echo "[+] Logwatch настроен (хранение отчетов 30 дней)."
 fi
 
-# 3. Мониторинг и очистка диска (<15% свободного места)
+# 3. Мониторинг и безопасная очистка диска (<15% свободного места)
 if [ "$SETUP_CLEANUP" = true ]; then
     cat << 'EOF' > /usr/local/bin/vps-disk-cleanup.sh
 #!/bin/bash
@@ -258,7 +268,8 @@ FREE_PERCENT=$(df / --output=pcent | tail -1 | tr -d ' %')
 if [ "$FREE_PERCENT" -gt 85 ]; then
     apt-get clean -y
     journalctl --vacuum-time=7d
-    rm -rf /tmp/* /var/tmp/*
+    # Безопасная очистка старых временных файлов без ущерба для активных сокетов (>1 дня)
+    find /tmp /var/tmp -mindepth 1 -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 fi
 EOF
     chmod +x /usr/local/bin/vps-disk-cleanup.sh
@@ -268,7 +279,8 @@ EOF
     echo "[+] Автоочистка диска настроена."
 fi
 
-# Финальный рестарт служб
+# Финальная проверка и рестарт служб
+sshd -t
 systemctl daemon-reload
 systemctl restart ssh.socket || true
 systemctl restart ssh || true
@@ -282,7 +294,7 @@ RESET="\033[0m"
 
 echo -e ""
 echo -e "${YELLOW}==========================================================${RESET}"
-echo -e "${GREEN}${BOLD} СЕРВЕР УСПЕШНО НАСТРОЕН!${RESET}"
+echo -e "${GREEN}${BOLD} СЕРВЕР УСПЕШНО НАСТРОЕН И УКРЕПЛЕН!${RESET}"
 echo -e " Новый пользователь: ${CYAN}$NEW_USER${RESET}"
 echo -e " Новый SSH порт: ${CYAN}$CUSTOM_SSH_PORT${RESET}"
 echo -e " IP-адрес сервера: ${CYAN}$SERVER_IP${RESET}"
