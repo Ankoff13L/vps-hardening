@@ -12,8 +12,8 @@ git clone https://github.com/Ankoff13L/vps-hardening.git
 После этого скопируйте и запустите: 
 ```bash
 cd vps-hardening
-chmod +x vps-hardening.sh
-sudo ./vps-hardening.sh
+chmod +x hardening.sh
+sudo ./hardening.sh
 ```
 ---
 Интерактивный режим: несмотря на то, что процесс развертывания полностью автоматизирован, скрипт работает в интерактивном режиме. В процессе установки вам потребуется ввести данные нового пользователя, задать SSH-порт и подтвердить настройку опциональных компонентов (Fail2ban, 2FA, Logwatch и др.).
