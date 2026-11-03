@@ -131,15 +131,17 @@ if ! systemctl list-unit-files | grep -q ssh.socket; then
     echo "Port $CUSTOM_SSH_PORT" >> /etc/ssh/sshd_config.d/99-hardening.conf
 fi
 
-# Настраиваем аутентификацию в зависимости от выбора 2FA
+# Настраиваем аутентификацию в зависимости от выбора 2FA (с исправленной логикой PAM)
 if [ "$SETUP_2FA" = true ]; then
     if ! grep -q "pam_google_authenticator.so" /etc/pam.d/sshd; then
         sed -i '/@include common-auth/a auth required pam_google_authenticator.so' /etc/pam.d/sshd
     fi
     
+    # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Отключаем нативный PasswordAuthentication, 
+    # чтобы обработку пароля и 2FA полностью контролировал PAM через KbdInteractive.
     cat <<EOF >> /etc/ssh/sshd_config.d/99-hardening.conf
 KbdInteractiveAuthentication yes
-PasswordAuthentication yes
+PasswordAuthentication no
 EOF
 else
     cat <<EOF >> /etc/ssh/sshd_config.d/99-hardening.conf
