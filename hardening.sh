@@ -8,7 +8,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Проверка, что скрипт запущен от root
 if [ "$EUID" -ne 0 ]; then
-  echo "[-] Ошибка: Запустите этот скрипт с правами root (sudo ./bootstrap.sh)."
+  echo "[-] Ошибка: Запустите этот скрипт с правами root (sudo ./hardening.sh)."
   exit 1
 fi
 
