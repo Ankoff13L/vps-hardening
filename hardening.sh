@@ -8,8 +8,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Проверка, что скрипт запущен от root
 if [ "$EUID" -ne 0 ]; then
-  echo "[-] Ошибка: Запустите этот скрипт с правами root (sudo ./hardening.sh)."
-  exit 1
+    echo "[-] Ошибка: Запустите этот скрипт с правами root (sudo ./hardening.sh)."
+    exit 1
 fi
 
 echo "=========================================================="
@@ -23,8 +23,8 @@ read -p "Введите имя нового sudo-пользователя [deplo
 NEW_USER=${NEW_USER:-deploy}
 
 if [ "$NEW_USER" = "root" ]; then
-  echo "[-] Ошибка: Использование имени 'root' в качестве нового пользователя запрещено в целях безопасности."
-  exit 1
+    echo "[-] Ошибка: Использование имени 'root' в качестве нового пользователя запрещено в целях безопасности."
+    exit 1
 fi
 
 while true; do
@@ -120,11 +120,16 @@ echo "=== [3/7] Настройка кастомного SSH порта и мод
 # Создаем директорию для drop-in конфигураций SSH (стандарт Ubuntu 24.04+)
 mkdir -p /etc/ssh/sshd_config.d
 
-# Базовая конфигурация харденинга через отдельный файл drop-in
+# Базовая конфигурация харденинга (идемпотентная перезапись)
 cat <<EOF > /etc/ssh/sshd_config.d/99-hardening.conf
 PermitRootLogin no
 PubkeyAuthentication no
 EOF
+
+# Если ssh.socket не используется, явно прописываем Port в конфигурации харденинга (без дублирования)
+if ! systemctl list-unit-files | grep -q ssh.socket; then
+    echo "Port $CUSTOM_SSH_PORT" >> /etc/ssh/sshd_config.d/99-hardening.conf
+fi
 
 # Настраиваем аутентификацию в зависимости от выбора 2FA
 if [ "$SETUP_2FA" = true ]; then
@@ -147,7 +152,7 @@ fi
 mkdir -p /run/sshd
 chmod 0755 /run/sshd
 
-# Строгая проверка синтаксиса SSH конфига перед применением (защита от потери доступа)
+# Строгая проверка синтаксиса SSH конфига перед применением
 if ! sshd -t; then
     echo "[-] Критическая ошибка: Синтаксическая ошибка в конфигурации SSH! Отменяем изменения."
     exit 1
@@ -164,12 +169,6 @@ ListenStream=0.0.0.0:$CUSTOM_SSH_PORT
 ListenStream=[::]:$CUSTOM_SSH_PORT
 EOF
     systemctl daemon-reload
-    systemctl restart ssh.socket
-else
-    echo "[*] Используется стандартный sshd сервис."
-    # На всякий случай прописываем порт в drop-in
-    echo "Port $CUSTOM_SSH_PORT" >> /etc/ssh/sshd_config.d/99-hardening.conf
-    systemctl restart ssh
 fi
 
 echo "=== [4/7] Настройка UFW (Firewall) и блокировка почтовых портов ==="
@@ -188,6 +187,14 @@ for port in $EXTRA_PORTS; do
     echo "[+] Открываем дополнительный порт: $port"
     ufw allow "$port"
 done
+
+# Безопасный порядок: применяем конфигурацию SSH и рестартим службы ДО включения UFW
+systemctl daemon-reload
+if systemctl list-unit-files | grep -q ssh.socket; then
+    systemctl restart ssh.socket || true
+else
+    systemctl restart ssh || true
+fi
 
 ufw --force enable
 echo "[+] UFW активирован. Новый SSH порт: $CUSTOM_SSH_PORT."
@@ -214,9 +221,6 @@ fi
 
 echo "=== [6/7] Настройка аутентификации SSH и 2FA ==="
 if [ "$SETUP_2FA" = true ]; then
-    systemctl restart ssh.socket || true
-    systemctl restart ssh || true
-
     echo ""
     echo "=========================================================="
     echo " ВНИМАНИЕ: Интерактивная генерация 2FA для пользователя $NEW_USER"
@@ -264,12 +268,12 @@ EOF
     echo "[+] Logwatch настроен (хранение отчетов 30 дней)."
 fi
 
-# 3. Мониторинг и безопасная очистка диска (<15% свободного места)
+# 3. Мониторинг и безопасная очистка диска (<15% свободного места) с надежным awk-парсингом
 if [ "$SETUP_CLEANUP" = true ]; then
     cat << 'EOF' > /usr/local/bin/vps-disk-cleanup.sh
 #!/bin/bash
-FREE_PERCENT=$(df / --output=pcent | tail -1 | tr -d ' %')
-if [ "$FREE_PERCENT" -gt 85 ]; then
+FREE_PERCENT=$(df / | awk 'NR==2 {print $5}' | tr -d '%')
+if [ -n "$FREE_PERCENT" ] && [ "$FREE_PERCENT" -gt 85 ]; then
     apt-get clean -y
     journalctl --vacuum-time=7d
     # Безопасная очистка старых временных файлов без ущерба для активных сокетов (>1 дня)
@@ -283,13 +287,8 @@ EOF
     echo "[+] Автоочистка диска настроена."
 fi
 
-# Финальная проверка и рестарт служб
-mkdir -p /run/sshd
-chmod 0755 /run/sshd
+# Финальная проверка конфигурации
 sshd -t
-systemctl daemon-reload
-systemctl restart ssh.socket || true
-systemctl restart ssh || true
 
 # Определение цветов для красивого вывода
 GREEN="\033[32m"
