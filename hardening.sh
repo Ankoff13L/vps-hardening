@@ -143,6 +143,10 @@ PasswordAuthentication yes
 EOF
 fi
 
+# Создаем необходимый каталог для привилегированной изоляции SSH
+mkdir -p /run/sshd
+chmod 0755 /run/sshd
+
 # Строгая проверка синтаксиса SSH конфига перед применением (защита от потери доступа)
 if ! sshd -t; then
     echo "[-] Критическая ошибка: Синтаксическая ошибка в конфигурации SSH! Отменяем изменения."
@@ -280,6 +284,8 @@ EOF
 fi
 
 # Финальная проверка и рестарт служб
+mkdir -p /run/sshd
+chmod 0755 /run/sshd
 sshd -t
 systemctl daemon-reload
 systemctl restart ssh.socket || true
