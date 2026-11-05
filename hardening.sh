@@ -76,22 +76,21 @@ echo "[+] Пользователь $NEW_USER успешно настроен."
 echo "=== [3/7] Создание изолированного профиля безопасности SSH ==="
 mkdir -p /etc/ssh/sshd_config.d
 
-# Формируем изолированный конфиг с наивысшим приоритетом (перекрывает любые настройки хостинга)
+# Формируем изолированный конфиг с наивысшим приоритетом
 cat <<EOF > /etc/ssh/sshd_config.d/99-hardening.conf
 Port $CUSTOM_SSH_PORT
 PermitRootLogin no
+PasswordAuthentication yes
 EOF
 
 if [ "$SETUP_2FA" = true ]; then
+    # Разрешаем интерактивный ввод для работы PAM (Google Authenticator) после проверки пароля
     cat <<EOF >> /etc/ssh/sshd_config.d/99-hardening.conf
 KbdInteractiveAuthentication yes
-PasswordAuthentication no
-AuthenticationMethods keyboard-interactive
 EOF
 else
     cat <<EOF >> /etc/ssh/sshd_config.d/99-hardening.conf
 KbdInteractiveAuthentication no
-PasswordAuthentication yes
 EOF
 fi
 
@@ -196,6 +195,8 @@ if [ "$SETUP_2FA" = true ]; then
     fi
 else
     echo "=== [6/7] Пропуск настройки Google Authenticator ==="
+    # Удаляем модуль из PAM, если он там был от предыдущих запусков
+    sed -i '/pam_google_authenticator.so/d' /etc/pam.d/sshd
 fi
 
 echo "=== [7/7] Финальная проверка служб ==="
