@@ -62,7 +62,8 @@ if id "$NEW_USER" &>/dev/null; then
     echo "[!] Пользователь $NEW_USER уже существует, обновляем пароль и права."
     printf '%s:%s\n' "$NEW_USER" "$NEW_USER_PASSWORD" | chpasswd
 else
-    adduser --gecos "" "$NEW_USER"
+    # Используем --disabled-password, чтобы adduser не запрашивал интерактивно пароль в терминал
+    adduser --disabled-password --gecos "" "$NEW_USER"
     printf '%s:%s\n' "$NEW_USER" "$NEW_USER_PASSWORD" | chpasswd
     usermod -aG sudo "$NEW_USER"
 fi
@@ -94,7 +95,7 @@ PasswordAuthentication yes
 EOF
 fi
 
-# Гарантируем наличие директории разделения привилегий OpenSSH
+# Гарантируем наличие директории разделения привилегий OpenSSH для успешной проверки
 mkdir -p /run/sshd
 chmod 0755 /run/sshd
 
@@ -175,7 +176,7 @@ if [ "$SETUP_2FA" = true ]; then
     
     # Проверка на идемпотентность: если 2FA уже настроен, не перезаписываем секретный ключ
     if [ -f "$USER_HOME/.google_authenticator" ]; then
-        echo "[!] Файл конфигурации Google Authenticator для $NEW_USER уже существует. Пропускаем генерацию нового ключа, чтобы не сломать доступ."
+        echo "[!] Файл конфигурации Google Authenticator для $NEW_USER уже существует. Пропускаем генерацию нового ключа."
     else
         echo ""
         echo "=========================================================="
