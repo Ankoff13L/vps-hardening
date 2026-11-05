@@ -94,6 +94,10 @@ PasswordAuthentication yes
 EOF
 fi
 
+# Гарантируем наличие директории разделения привилегий OpenSSH
+mkdir -p /run/sshd
+chmod 0755 /run/sshd
+
 # Строгая проверка конфигурации SSH перед применением
 if ! sshd -t; then
     echo "[-] Ошибка: Конфигурация SSH повреждена. Отмена изменений."
