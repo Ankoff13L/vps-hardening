@@ -8,8 +8,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Проверка, что скрипт запущен от root
 if [ "$EUID" -ne 0 ]; then
-  echo "[-] Ошибка: Запустите этот скрипт с правами root (sudo ./hardening.sh)."
-  exit 1
+    echo "[-] Ошибка: Запустите этот скрипт с правами root (sudo ./hardening.sh)."
+    exit 1
 fi
 
 echo "=========================================================="
@@ -23,8 +23,8 @@ read -p "Введите имя нового sudo-пользователя [deplo
 NEW_USER=${NEW_USER:-deploy}
 
 if [ "$NEW_USER" = "root" ]; then
-  echo "[-] Ошибка: Использование имени 'root' в качестве нового пользователя запрещено в целях безопасности."
-  exit 1
+    echo "[-] Ошибка: Использование имени 'root' в качестве нового пользователя запрещено в целях безопасности."
+    exit 1
 fi
 
 while true; do
@@ -216,6 +216,8 @@ else
     echo "[*] Режим без 2FA: включен вход только по паролю."
     set_sshd_param "KbdInteractiveAuthentication" "no"
     set_sshd_param "PasswordAuthentication" "yes"
+    # Удаляем модуль из PAM, если он там остался от прошлых запусков
+    sed -i '/pam_google_authenticator.so/d' /etc/pam.d/sshd
 fi
 
 echo "=== [7/7] Настройка фоновых служб (Unattended-upgrades, Logwatch, Диск) ==="
